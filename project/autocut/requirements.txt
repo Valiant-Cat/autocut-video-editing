@@ -1,0 +1,34 @@
+# autocut requirements
+#
+# Python runtime:
+# - Python >= 3.10
+#
+# Third-party Python packages:
+# - None
+#   The current autocut implementation only uses the Python standard library.
+#
+# Required system tools:
+# - ffmpeg
+# - ffprobe
+#
+# Required runtime files:
+# - ./.env
+#   Must define:
+#   VIDEO_MODEL
+#   AUDIO_MODEL
+#   AGENT_MODEL
+#   GEMINI_API_KEY
+#   OPENAI_API_KEY
+#
+# Quick environment checks:
+#   python3 --version
+#   command -v ffmpeg
+#   command -v ffprobe
+#
+# Example run:
+#   cd /root/tangfan/code/ComfyUI/autocut
+#   python3 run.py
+#
+# Notes:
+# - If future versions introduce external Python packages, list them below.
+# - This file is intentionally comment-only because pip install is not needed now.

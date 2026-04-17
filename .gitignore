@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+
+project/autocut/.env
+project/autocut/output/
