@@ -7,6 +7,11 @@ import subprocess
 from pathlib import Path
 
 
+TRANSITION_TARGET_FPS = 25.0
+TRANSITION_LANDSCAPE_SIZE = (1280, 720)
+TRANSITION_PORTRAIT_SIZE = (720, 1280)
+
+
 def run_cmd(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(args, text=True, capture_output=True)
     if check and result.returncode != 0:
@@ -65,6 +70,36 @@ def ffprobe_video_fps(media_path: str | Path) -> float:
     if not math.isfinite(fps) or fps <= 0:
         return 25.0
     return fps
+
+
+def ffprobe_video_size(media_path: str | Path) -> tuple[int, int]:
+    result = run_cmd(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0:s=x",
+            str(media_path),
+        ],
+        check=False,
+    )
+    raw = result.stdout.strip()
+    if not raw or "x" not in raw:
+        return TRANSITION_LANDSCAPE_SIZE
+    try:
+        width_raw, height_raw = raw.split("x", 1)
+        width = int(width_raw)
+        height = int(height_raw)
+    except Exception:
+        return TRANSITION_LANDSCAPE_SIZE
+    if width <= 0 or height <= 0:
+        return TRANSITION_LANDSCAPE_SIZE
+    return width, height
 
 
 def ffprobe_has_audio(media_path: str | Path) -> bool:
@@ -411,6 +446,35 @@ def _choose_transition(left_item: dict, right_item: dict, index: int, base_durat
     return (("fade" if index % 2 == 0 else "fadeblack"), "tri", "qsin", duration)
 
 
+def _choose_transition_canvas(clip_paths: list[Path]) -> tuple[int, int]:
+    if not clip_paths:
+        return TRANSITION_LANDSCAPE_SIZE
+    width, height = ffprobe_video_size(clip_paths[0])
+    if height > width:
+        return TRANSITION_PORTRAIT_SIZE
+    return TRANSITION_LANDSCAPE_SIZE
+
+
+def _normalized_video_filter(index: int, target_width: int, target_height: int) -> str:
+    return (
+        f"[{index}:v]"
+        f"fps={TRANSITION_TARGET_FPS:.3f},"
+        f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
+        f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:color=black,"
+        f"format=yuv420p,setsar=1,settb=AVTB,setpts=PTS-STARTPTS"
+        f"[v{index}]"
+    )
+
+
+def _normalized_audio_filter(index: int) -> str:
+    return (
+        f"[{index}:a]"
+        f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+        f"aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS"
+        f"[a{index}]"
+    )
+
+
 def _compose_with_transitions(
     clip_paths: list[Path],
     timeline: list[dict],
@@ -436,14 +500,16 @@ def _compose_with_transitions(
         return str(output_path)
 
     durations = [ffprobe_duration(path) for path in clip_paths]
+    target_width, target_height = _choose_transition_canvas(clip_paths)
     cmd = ["ffmpeg", "-hide_banner", "-y"]
     for clip_path in clip_paths:
         cmd.extend(["-i", str(clip_path)])
 
-    filter_parts = [
-        "[0:v]format=yuv420p,setsar=1[v0]",
-        "[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a0]",
-    ]
+    filter_parts = []
+    for index in range(len(clip_paths)):
+        filter_parts.append(_normalized_video_filter(index, target_width, target_height))
+        filter_parts.append(_normalized_audio_filter(index))
+
     cumulative_duration = durations[0]
     for index in range(1, len(clip_paths)):
         transition_name, curve1, curve2, transition = _choose_transition(
